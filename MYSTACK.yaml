@@ -1,5 +1,26 @@
 description: Stack for a web server auto scale
 heat_template_version: '2018-03-02'
+
+parameters:
+  key_name:
+    type: string
+    label: Key Name
+    default: default
+    constraints:
+      - allowed_values: [ philippe-key, default ]	
+  image_id:
+    type: string
+    label: Image Id
+    default: ubuntu-18.4
+    constraints:
+      - allowed_values: [ ubuntu-16.4, ubuntu-18.4, debian-9 ]
+  flavor:
+    type: string
+    label: size
+    default: ds512M
+    constraints:
+      - allowed_values: [ m1.tinyplus, ds1G, ds512M ]
+
 resources:
   private_net:
     type: OS::Neutron::Net
@@ -149,26 +170,7 @@ resources:
         remote_ip_prefix: 0.0.0.0/0
 
 
-parameters:
 
-  key_name:
-    type: string
-    label: Key Name
-   default: philippe-key
-	
-  image_id:
-    type: string
-    label: Image ID
-   default: ubuntu-18.4
-    constraints:
-      - allowed_values: [ ubuntu-16.4, ubuntu-18.4, debian-9 ]
-  
-  flavor:
-    type: string
-    label: size
-   default: ds512M
-    constraints:
-      - allowed_values: [ m1.tinyplus, ds1G, ds512M ]
 
 
 outputs:
