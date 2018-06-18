@@ -1,0 +1,158 @@
+description: Stack for a web server auto scale
+heat_template_version: '2018-03-02'
+resources:
+  private_net:
+    type: OS::Neutron::Net
+    properties:
+      name: priv_net_1
+  
+  private_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      allocation_pools:
+      - end: 192.168.10.199
+        start: 192.168.10.10
+      cidr: 192.168.10.0/24
+      dns_nameservers:
+      - 8.8.8.8
+      enable_dhcp: true
+      gateway_ip: 192.168.10.1
+      network_id: 
+        get_resource: private_net
+      
+  web_port:
+    type: OS::Neutron::Port
+    properties:
+      fixed_ips:
+      - subnet_id: 
+          get_resource: private_subnet
+      network_id: 
+        get_resource: private_net
+      security_groups:
+        - get_resource: web_security_group      
+    
+  router:
+    type: OS::Neutron::Router
+    properties:
+      external_gateway_info:
+        network: public
+  
+  router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router_id: 
+        get_resource: router
+      subnet_id: 
+        get_resource: private_subnet
+  
+  web:
+    type: OS::Nova::Server
+    properties:
+      flavor: ds512M
+      image: ubuntu-18.4
+      key_name: philippe-key
+      name: web
+      networks:
+      - floating_ip:
+          get_resource: web_floating_ip1
+        port:
+          get_resource: web_port
+      user_data_format: RAW
+      user_data_update_policy: REPLACE
+      user_data: |
+        #!/bin/bash
+        
+        # Modification du mot de passe pour faciliter l'acces console
+        echo "ubuntu:ubuntu" | chpasswd
+        
+        # Installation des logiciels necessaires a  l'application
+        apt-get update
+        apt-get -y install python3 \
+                           python3-venv \
+                           python3-dev \
+                           supervisor \
+                           nginx \
+                           git
+        # recuperation du code de l'application
+        git clone https://j80.sorsdupi.eu/gitlab/devland/flask_sample.git /opt/flask_sample/
+        cd /opt/flask_sample
+        git checkout v2.1
+        
+        # preparation de l'environnement de l'application
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        chmod a+x /opt/flask_sample/gunicorn_start.sh
+        
+        # Ajout de l'application dans supervisor
+        cat > /etc/supervisor/conf.d/hello.conf << EOF
+        [program:hello]
+        command=/opt/flask_sample/gunicorn_start.sh
+        director=/opt/flask_sample\
+        user=ubuntu
+        autostart=true
+        autorestart=true
+        stopasgroup=true
+        killasgroup=true
+        EOF
+        
+        # recharge la configuration de supervisorctl
+        supervisorctl reload
+        cat > /etc/nginx/sites-available/hello.conf <<EOF
+        server {
+            # listen on port 80 (http)
+            listen 80;
+            server_name _;
+
+            location / {
+                # forward application requests to the gunicorn server
+                proxy_pass http://localhost:8000;
+                proxy_redirect off;
+                proxy_set_header Host \$host;
+                proxy_set_header X-Real-IP \$remote_addr;
+                proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            }
+
+            location /static {
+                # handle static files directly, without forwarding to the application
+                alias /opt/flask_sample/app/static;
+                expires 30d;
+            }
+        }
+        EOF
+        ln -s /etc/nginx/sites-available/hello.conf /etc/nginx/sites-enabled/
+        rm -f /etc/nginx/sites-enabled/default
+        systemctl restart nginx 
+  
+  web_floating_ip1:
+    type: OS::Neutron::FloatingIP
+    properties:
+      floating_network: public
+      port_id:
+        get_resource: web_port
+
+  web_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: 'Allow ICMP SSH and HTTP from anywhere'
+      name: front_security_group
+      rules:
+      - port_range_max: 22
+        port_range_min: 22
+        protocol: tcp
+        remote_ip_prefix: 0.0.0.0/0
+      - port_range_max: 80
+        port_range_min: 80
+        protocol: tcp
+        remote_ip_prefix: 0.0.0.0/0
+      - protocol: icmp
+        remote_ip_prefix: 0.0.0.0/0
+outputs:
+  siteUrl:
+    value:
+      str_replace:
+        template: http://host/hello
+        params:
+          host:
+            get_attr: [web_floating_ip1, floating_ip_address]
+	
