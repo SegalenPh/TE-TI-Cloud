@@ -48,9 +48,9 @@ resources:
   web:
     type: OS::Nova::Server
     properties:
-      flavor: ds512M
-      image: ubuntu-18.4
-      key_name: philippe-key
+      flavor: { get_param: flavor }
+      image: { get_param: image_id }
+      key_name: { get_param: key_name }
       name: web
       networks:
       - floating_ip:
@@ -147,6 +147,30 @@ resources:
         remote_ip_prefix: 0.0.0.0/0
       - protocol: icmp
         remote_ip_prefix: 0.0.0.0/0
+
+
+parameters:
+
+  key_name:
+    type: string
+    label: Key Name
+   default: philippe-key
+	
+  image_id:
+    type: string
+    label: Image ID
+   default: ubuntu-18.4
+    constraints:
+      - allowed_values: [ ubuntu-16.4, ubuntu-18.4, debian-9 ]
+  
+  flavor:
+    type: string
+    label: size
+   default: ds512M
+    constraints:
+      - allowed_values: [ m1.tinyplus, ds1G, ds512M ]
+
+
 outputs:
   siteUrl:
     value:
